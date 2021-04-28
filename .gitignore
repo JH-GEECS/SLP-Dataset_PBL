@@ -1,0 +1,6 @@
+/data
+/backup
+*.h5
+*.m
+/videos
+.vscode
