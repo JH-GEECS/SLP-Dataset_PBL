@@ -51,18 +51,21 @@ def get_mode(mode):
 
 def draw_skeleton(parray):
     '''
-    parray: 
-        pose_dim(=150)
-        value range [0,1]
+    parray:
+        [290,]
     '''
     H, W = 256, 256
     img = np.zeros((H, W), np.uint8) + 255 # white blank page
+
+    pose_coordinates = parray[:100]
+    landmark_coordinates = parray[100:]
     
     # corresponding coordinate in a H x W
     # (x(H - 1) + 1, y(W - 1) + 1)
-    px = parray[0::3] * H + 1
-    py = parray[1::3] * W + 1
+    px = pose_coordinates[:pose_coordinates.shape[0]//2] * H + 1
+    py = pose_coordinates[pose_coordinates.shape[0]//2:] * W + 1
 
+    # draw pose
     for i in range(len(px)):
         cv2.circle(img, (int(px[i]), int(py[i])), 2, (0, 255, 255), thickness=-1, lineType=cv2.FILLED)
     
@@ -70,6 +73,15 @@ def draw_skeleton(parray):
         start = (int(px[pair[0]]), int(py[pair[0]]))
         end = (int(px[pair[1]]), int(py[pair[1]]))
         cv2.line(img, start, end, (0, 0, 255), 2)
+
+    # draw face
+    # lx = landmark_coordinates[:landmark_coordinates.shape[0]//2] * H//2 + 1
+    # ly = landmark_coordinates[landmark_coordinates.shape[0]//2:] * W//2 + 1
+    lx = landmark_coordinates[:landmark_coordinates.shape[0]//2]
+    ly = landmark_coordinates[landmark_coordinates.shape[0]//2:]
+    
+    for i in range(len(lx)):
+        cv2.circle(img, (int(lx[i]), int(ly[i])), 2, (0, 255, 255), thickness=-1, lineType=cv2.FILLED)
 
     return img
 
@@ -110,6 +122,7 @@ def main(args):
             h, w, c = img.shape
             size = (w, h)
             frame_array.append(img)
+        
         out = cv2.VideoWriter(os.path.join(args.save, mode, f"{name}.mp4"), cv2.VideoWriter_fourcc(*'DIVX'), args.fps, size)
         for frame in frame_array:
             out.write(frame)

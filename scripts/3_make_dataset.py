@@ -1,6 +1,7 @@
 import argparse
 import glob
 import gzip
+import json
 import os
 import pickle
 import re
@@ -9,28 +10,30 @@ import h5py
 import numpy as np
 from tqdm import tqdm
 
+
+def load_json(fpath):
+    with open(fpath, "r") as f:
+       _file = json.load(f)
+    return _file
+
 def save_annotation(_file, fpath):
     with gzip.open(fpath, "wb") as f:
         pickle.dump(_file, f)
 
-
 def load_h5py(fpath):
     _file = h5py.File(fpath, "r")
     return _file
-
 
 def load_annotation(fpath):
     with gzip.open(fpath, "rb") as f:
         _file = pickle.load(f)
     return _file
 
-
 def load_pickle(fpath):
     print(f"load {fpath}")
     with open(fpath, "rb") as f:
         _file = pickle.load(f)
     return _file
-
 
 def get_mode(mode):
     if mode == "dev": 
@@ -41,33 +44,45 @@ def get_mode(mode):
         mode = "test_json_res"
     return mode
 
-
 def minmax_norm(parray):
     '''
     input array: 
-        pose_dim(=150) x seq
+        [T, dim]
     '''
-    pmin = min(parray.min(axis=0))
-    pmax = max(parray.max(axis=0))
+    pmin = min(parray.min(axis=-1))
+    pmax = max(parray.max(axis=-1))
     norm = (parray - pmin) / (pmax - pmin)
     return norm
-
 
 def centering(parray):
     '''
     centering using neck coordinate
-    neck 
+    input:
+        [T, dim]
     '''
-    dim, seq = parray.shape
-    neck_array = parray[3:6, :] # (x, y, z) x seq
-    
-    diff = neck_array - 0.5
-    diff = np.expand_dims(diff, axis=0)
-    diff = np.repeat(diff, 50, axis=0).reshape(-1, seq) # 150 x seq
-    
-    parray -= diff
-    return parray    
+    t, dim = parray.shape
+    neck_idx = 1
 
+    new_neck_xs = parray[:, neck_idx] - 0.5
+    new_neck_ys = parray[:, dim//2 + neck_idx] - 0.5
+
+    xs = parray[:, :dim//2] - np.expand_dims(new_neck_xs, axis=-1)
+    ys = parray[:, dim//2:] - np.expand_dims(new_neck_ys, axis=-1)
+
+    return np.concatenate((xs, ys), axis=-1)
+
+def relocate(landmark_coordinates, pose_coordinates):
+    landmark_xs = landmark_coordinates[:, landmark_coordinates.shape[-1]//2:]
+    landmark_ys = landmark_coordinates[:, :landmark_coordinates.shape[-1]//2]
+
+    nose_idx = 30
+    nose_xs = landmark_xs[:, nose_idx] - pose_coordinates[:, 0]
+    nose_ys = landmark_ys[:, nose_idx] - pose_coordinates[:, 51]
+
+    landmark_xs -= np.expand_dims(nose_xs, axis=-1)
+    landmark_ys -= np.expand_dims(nose_ys, axis=-1)
+
+    return np.concatenate((landmark_xs, landmark_ys), axis=-1)
 
 def main(args):
     annotation = load_annotation(args.annotation)
@@ -76,20 +91,56 @@ def main(args):
     total = len(annotation)
     passed = 0
     for a_data in tqdm(annotation):
-        name = a_data["name"]
-        mode, name = os.path.split(name)
+        fpath = a_data["name"]
+        
+        mode, name = os.path.split(fpath)
         mode = get_mode(mode)
-        try:
-            parray = np.array(pose[mode][name]).transpose(1, 0) # pose_dim x seq
-            parray = minmax_norm(parray)
-            parray = centering(parray)
-            
-            parray = parray.transpose(1, 0) # seq x pose_dim
-        except KeyError:
-            parray = None
-            passed += 1
+        
+        # load json file to get landmark information
+        flist = glob.glob(os.path.join("./data", mode, name, "*.json"))
+        
+        landmarks = []
+        for _json in flist:
+            json_file = load_json(_json)
+            l = json_file["people"][0]["face_keypoints_2d"]
+            landmarks.append(l)
+        
+        # get landmark array
+        landmark_array = np.array(landmarks) # [T, 210]
+        
+        # get pose array
+        parray = np.array(pose[mode][name]) # [T, 150]
 
-        a_data["sign"] = parray
+        # check length
+        assert len(landmark_array) == len(parray)
+        
+        # get pose coordinates
+        parray_xs = parray[:, ::3] # [T, 50]
+        parray_ys = parray[:, 1::3]
+
+        # [T, 100]
+        pose_coordinates = np.concatenate((parray_xs, parray_ys), axis=-1)
+
+        # normalizing 0 ~ 1
+        pose_coordinates = minmax_norm(pose_coordinates)
+
+        # centering
+        pose_coordinates = centering(pose_coordinates)
+
+        # take off uneccessary values
+        landmark_xs = landmark_array[:, ::3] # [T, 70]
+        landmark_ys = landmark_array[:, 1::3]
+
+        landmark_coordinates = np.concatenate((landmark_xs, landmark_ys), axis=-1)
+        
+        # normalizing 0 ~ 1
+        # landmark_coordinates = minmax_norm(landmark_coordinates)
+
+        # relocate face
+        # landmark_coordinates = relocate(landmark_coordinates, pose_coordinates)
+        
+        # a_data["sign"] = pose_coordinates
+        a_data["sign"] = np.concatenate((pose_coordinates, landmark_coordinates), axis=-1)
 
     print(f"processing completed [{total-passed}/{total}].")
 
