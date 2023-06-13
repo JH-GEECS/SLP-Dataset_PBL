@@ -6,7 +6,7 @@ import re
 
 import h5py
 import numpy as np
-import sh
+# import sh
 from tqdm import tqdm
 
 
@@ -51,8 +51,8 @@ def load_data(_dir):
 
 def main(args):
     print("1. json2h5.py")
-    if args.delete:
-        sh.rm("-r", "-f", args.data_out)
+    # if args.delete:
+    #    sh.rm("-r", "-f", args.data_out)
     
     hf = h5py.File(args.data_out, "w")
     for mode in args.modes:
@@ -71,7 +71,7 @@ def get_args():
     parser.add_argument("--data_in", type=str, default="./data")
     parser.add_argument("--modes", nargs="+", required=True)
     parser.add_argument("--data_out", type=str, default="./data/keypoints-01-raw_wb.h5")
-    parser.add_argument("--delete", action="store_true")
+    # parser.add_argument("--delete", action="store_true")
     return parser.parse_args()
 
 
